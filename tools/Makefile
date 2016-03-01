@@ -18,7 +18,7 @@ include ../config.mk
 
 DESTDIR ?= /usr
 libs = ../lib/libDDCB.a ../lib/libzHW.a ../lib/libcard.a $(libcxl_a) # static
-LDLIBS += $(libs) -lpthread -lrt                                     # dynamic
+LDLIBS += $(libs) -lpthread -lrt -ljson-c	# dynamic
 
 genwqe_peek_objs = force_cpu.o
 genwqe_poke_objs = force_cpu.o
@@ -42,6 +42,7 @@ projs = genwqe_update genwqe_gzip genwqe_gunzip zlib_mt_perf genwqe_memcopy \
 # Do this only on platforms where we have a libcxl available e.g. System p
 ifneq ($(CONFIG_LIBCXL_PATH),)
 projs += genwqe_maint genwqe_loadtree
+projs += agzipd
 endif
 
 all: $(projs)
