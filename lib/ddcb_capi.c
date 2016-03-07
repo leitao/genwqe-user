@@ -235,7 +235,9 @@ static void rt_trace_dump(void) {}
 
 #endif
 
-/*	Command to ddcb */
+/**
+ * Convert a command into ddcb which can than be send to the hardware.
+ */
 static inline void cmd_2_ddcb(ddcb_t *pddcb, struct ddcb_cmd *cmd,
 			      uint16_t seqnum, bool use_irq)
 {
@@ -247,7 +249,11 @@ static inline void cmd_2_ddcb(ddcb_t *pddcb, struct ddcb_cmd *cmd,
 	pddcb->n.ats_64 = __cpu_to_be64(cmd->ats);
 	memcpy(&pddcb->n.asiv[0], &cmd->asiv[0], DDCB_ASIV_LENGTH_ATS);
 	pddcb->icrc_hsi_shi_32 = __cpu_to_be32(0x00000000); /* for crc */
-	/* Write seqnum into reserverd area, check for this seqnum is done in ddcb_2_cmd() */
+
+	/*
+	 * Write seqnum into reserverd area, check for this seqnum is
+	 * done in ddcb_2_cmd().
+	 */
 	pddcb->rsvd_0e = __cpu_to_be16(seqnum);
 
 	/* DDCB completion irq */
@@ -279,10 +285,25 @@ static bool ddcb_2_cmd(ddcb_t *ddcb, struct ddcb_cmd *cmd)
 	cmd->attn = __be16_to_cpu(ddcb->attn_16);
 	cmd->progress = __be32_to_cpu(ddcb->progress_32);
 	cmd->retc = __be16_to_cpu(ddcb->retc_16);
-	/* Check received seqnum here (this will become a copy from rsvd_0e field) */
+
+	/*
+	 * Check received seqnum here (this will become a copy from
+	 * rsvd_0e field).
+	 */
 	if (ddcb->rsvd_0e != ddcb->rsvd_c0)
 		return false;
 	return true;
+}
+
+static void afu_dump_queue(struct dev_ctx *ctx)
+{
+	unsigned int i;
+	ddcb_t *ddcb;
+
+	for (i = 0, ddcb = &ctx->ddcb[0]; i < ctx->ddcb_num; i++, ddcb++) {
+		VERBOSE0("DDCB %d [%016llx]\n", i, (long long)ddcb);
+		ddcb_hexdump(stderr, ddcb, sizeof(ddcb_t));
+	}
 }
 
 static void afu_print_status(struct cxl_afu_h *afu_h, FILE *fp)
@@ -456,12 +477,13 @@ static int __afu_open(struct dev_ctx *ctx)
 		cxl_mmio_write64(ctx->afu_h, MMIO_DDCBQ_START_REG,
 			(uint64_t)(void *)ctx->ddcb);
 
-		/* | 63..48 | 47....32 | 31........24 | 23....16 | 15.....0 | */
-		/* | Seqnum | Reserved | 1st ddcb num | max ddcb | Reserved | */
+		/* 63..48 | 47....32 | 31........24 | 23....16 | 15.....0 */
+		/* Seqnum | Reserved | 1st ddcb num | max ddcb | Reserved */
 		mmio_dat = (((uint64_t)ctx->ddcb_seqnum << 48) |
-		    	((uint64_t)ctx->ddcb_in  << 24)    |
-		    	((uint64_t)(ctx->ddcb_num - 1) << 16));
-		rc = cxl_mmio_write64(ctx->afu_h, MMIO_DDCBQ_CONFIG_REG, mmio_dat);
+			    ((uint64_t)ctx->ddcb_in  << 24)    |
+			    ((uint64_t)(ctx->ddcb_num - 1) << 16));
+		rc = cxl_mmio_write64(ctx->afu_h, MMIO_DDCBQ_CONFIG_REG,
+				      mmio_dat);
 		if (rc != 0) {
 			rc = DDCB_ERR_CARD;
 			goto err_mmio_unmap;
@@ -534,7 +556,7 @@ static inline int __afu_close(struct dev_ctx *ctx, bool force)
 	}
 
 	VERBOSE1("        [%s] AFU[%d:%d] Enter Open Clients: %d\n",
-		__func__, ctx->card_no, ctx->cid_id, ctx->clients);
+		 __func__, ctx->card_no, ctx->cid_id, ctx->clients);
 	while (1) {
 		cxl_mmio_read64(afu_h, MMIO_DDCBQ_STATUS_REG, &mmio_dat);
 		if (0x0ull == (mmio_dat & 0x10))
@@ -545,7 +567,8 @@ static inline int __afu_close(struct dev_ctx *ctx, bool force)
 		if (1000 == i) {
 			VERBOSE0("[%s] AFU[%d:%d] Error Timeout wait_afu_stop "
 				 "STATUS_REG: 0x%016llx\n", __func__,
-				 ctx->card_no, ctx->cid_id, (long long)mmio_dat);
+				 ctx->card_no, ctx->cid_id,
+				 (long long)mmio_dat);
 			rc = DDCB_ERR_CARD;
 			break;
 		}
@@ -560,17 +583,6 @@ static inline int __afu_close(struct dev_ctx *ctx, bool force)
 	VERBOSE1("        [%s] AFU[%d:%d] Exit rc: %d\n", __func__,
 		ctx->card_no, ctx->cid_id, rc);
 	return rc;
-}
-
-static void afu_dump_queue(struct dev_ctx *ctx)
-{
-	unsigned int i;
-	ddcb_t *ddcb;
-
-	for (i = 0, ddcb = &ctx->ddcb[0]; i < ctx->ddcb_num; i++, ddcb++) {
-		VERBOSE0("DDCB %d [%016llx]\n", i, (long long)ddcb);
-		ddcb_hexdump(stderr, ddcb, sizeof(ddcb_t));
-	}
 }
 
 /**
@@ -636,8 +648,8 @@ static int card_dev_close(struct dev_ctx *ctx)
 
 	if (ctx->ddcb_done_tid) {
 		rc = pthread_cancel(ctx->ddcb_done_tid);
-		VERBOSE1("    [%s] AFU[%d:%d] Wait done_thread to join rc: %d\n",
-			__func__, ctx->card_no, ctx->cid_id, rc);
+		VERBOSE1("    [%s] AFU[%d:%d] Wait done_thread to join "
+			 "rc: %d\n", __func__, ctx->card_no, ctx->cid_id, rc);
 		rc = pthread_join(ctx->ddcb_done_tid, &res);
 		VERBOSE1("    [%s] AFU[%d:%d] clients: %d rc: %d\n", __func__,
 			ctx->card_no, ctx->cid_id, ctx->clients, rc);
@@ -835,8 +847,11 @@ static int __ddcb_execute_multi(void *card_data, struct ddcb_cmd *cmd)
 		txq->q_in_time = get_msec();	/* Save now time in msec */
 		ctx->ddcb_seqnum++;		/* Next seq */
 		rt_trace(0x00a0, seq, idx, ttx);
-		VERBOSE1("[%s] AFU[%d:%d] seq: 0x%x slot: %d cmd: %p\n", __func__,
-			ctx->card_no, ctx->cid_id, seq, idx, my_cmd);
+
+		VERBOSE1("[%s] AFU[%d:%d] seq: 0x%x slot: %d cmd: %p\n",
+			 __func__, ctx->card_no, ctx->cid_id, seq, idx,
+			 my_cmd);
+
 		/* Increment ddcb_in and warp back to 0 */
 		ctx->ddcb_in = (ctx->ddcb_in + 1) % ctx->ddcb_num;
 
@@ -1396,15 +1411,17 @@ static void __dev_dump(struct dev_ctx *ctx, FILE *fp)
 	}
 	if (false == work_done)
 		return;	/* Exit if not used */
-	/* Keep this in a single print so we do not get mixed lines from  other process */
+
+	/*
+	 * Keep this in a single print so we do not get mixed lines
+	 * from other process.
+	 */
 	fprintf(fp, "  AFU[%d:%d] irqs: %d] Completed DDCBs: %lld\n"
-		    "  Stats: %d(wait), %d(x1), %d(x2), %d(x3), %d(x4 an more)\n",
+		"  Stats: %d(wait), %d(x1), %d(x2), %d(x3), %d(x4 an more)\n",
 		ctx->card_no, ctx->cid_id, ctx->process_irqs,
 		(long long)ctx->completed_ddcbs,
-		(int)ctx->completed_tasks[0],
-		(int)ctx->completed_tasks[1],
-		(int)ctx->completed_tasks[2],
-		(int)ctx->completed_tasks[3],
+		(int)ctx->completed_tasks[0], (int)ctx->completed_tasks[1],
+		(int)ctx->completed_tasks[2], (int)ctx->completed_tasks[3],
 		(int)ctx->completed_tasks[4]);
 }
 
