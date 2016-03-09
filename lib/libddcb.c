@@ -56,20 +56,12 @@
 
 #include <libddcb.h>
 
-#ifndef ARRAY_SIZE
-#  define ARRAY_SIZE(a)  (sizeof((a)) / sizeof((a)[0]))
-#endif
-
-#ifndef ABS
-#  define ABS(a)	 (((a) < 0) ? -(a) : (a))
-#endif
-
 /* This is the internal structure for each Stream */
 struct card_dev_t {
 	int card_no;		/* card id: FIXEM do we need card_dev? */
 	int card_type;		/* type of card: GenWQE, CAPI, CAPIsim, ... */
 	int mode;
-	void *card_data;	/* private data from underlying layer */
+	void *lib_data;	/* private data from underlying layer */
 	int card_rc;		/* return code from lower level */
 	int card_errno;		/* errno from lower level */
 	struct ddcb_accel_funcs *accel;	 /* supported set of functions */
@@ -138,6 +130,7 @@ static const char * const ddcb_errlist[] = {
 	[ABS(DDCB_ERR_ENOENT)] = "entry not found",
 	[ABS(DDCB_ERR_IRQTIMEOUT)] = "timeout waiting on irq event",
 	[ABS(DDCB_ERR_EVENTFAIL)] = "failed waiting on expected event",
+	[ABS(DDCB_ERR_TIMEOUT)] = "timeout error",
 };
 
 static const int ddcb_nerr __attribute__((unused)) = ARRAY_SIZE(ddcb_errlist);
@@ -228,9 +221,9 @@ accel_t accel_open(int card_no, unsigned int card_type,
 		goto err_free;
 	}
 
-	card->card_data = card->accel->card_open(card_no, mode, &card->card_rc,
-						 appl_id, appl_id_mask);
-	if (card->card_data == NULL) {
+	card->lib_data = card->accel->card_open(card_no, mode, &card->card_rc,
+						appl_id, appl_id_mask);
+	if (card->lib_data == NULL) {
 		rc = DDCB_ERR_CARD;
 		goto err_free;
 	}
@@ -275,7 +268,7 @@ int accel_close(accel_t card)
 	if (accel->card_close == NULL)
 		return DDCB_ERR_NOTIMPL;
 
-	rc = accel->card_close(card->card_data);
+	rc = accel->card_close(card->lib_data);
 	free(card);
 
 	if (ddcb_gather_statistics()) {
@@ -303,7 +296,7 @@ const char *accel_strerror(accel_t card, int card_rc)
 	if (accel->card_strerror == NULL)
 		return NULL;
 
-	return accel->card_strerror(card->card_data, card_rc);
+	return accel->card_strerror(card->lib_data, card_rc);
 
 }
 
@@ -322,7 +315,7 @@ int accel_ddcb_execute(accel_t card, struct ddcb_cmd *req,
 	if (accel->ddcb_execute == NULL)
 		return DDCB_ERR_NOTIMPL;
 
-	card->card_rc = accel->ddcb_execute(card->card_data, req);
+	card->card_rc = accel->ddcb_execute(card->lib_data, req);
 	card->card_errno = errno;
 
 	if (card_rc != NULL)
@@ -359,7 +352,7 @@ uint64_t accel_read_reg64(accel_t card, uint32_t offs, int *card_rc)
 		return 0;
 	}
 
-	return accel->card_read_reg64(card->card_data, offs, card_rc);
+	return accel->card_read_reg64(card->lib_data, offs, card_rc);
 }
 
 uint32_t accel_read_reg32(accel_t card, uint32_t offs, int *card_rc)
@@ -378,7 +371,7 @@ uint32_t accel_read_reg32(accel_t card, uint32_t offs, int *card_rc)
 		return 0;
 	}
 
-	return accel->card_read_reg32(card->card_data, offs, card_rc);
+	return accel->card_read_reg32(card->lib_data, offs, card_rc);
 }
 
 int accel_write_reg64(accel_t card, uint32_t offs, uint64_t val)
@@ -391,7 +384,7 @@ int accel_write_reg64(accel_t card, uint32_t offs, uint64_t val)
 	if (accel->card_write_reg64 == NULL)
 		return DDCB_ERR_NOTIMPL;
 
-	return accel->card_write_reg64(card->card_data, offs, val);
+	return accel->card_write_reg64(card->lib_data, offs, val);
 }
 
 int accel_write_reg32(accel_t card, uint32_t offs, uint32_t val)
@@ -404,7 +397,7 @@ int accel_write_reg32(accel_t card, uint32_t offs, uint32_t val)
 	if (accel->card_write_reg32 == NULL)
 		return DDCB_ERR_NOTIMPL;
 
-	return accel->card_write_reg32(card->card_data, offs, val);
+	return accel->card_write_reg32(card->lib_data, offs, val);
 }
 
 uint64_t accel_get_app_id(accel_t card)
@@ -417,7 +410,7 @@ uint64_t accel_get_app_id(accel_t card)
 	if (accel->card_get_app_id == NULL)
 		return 0;
 
-	return accel->card_get_app_id(card->card_data);
+	return accel->card_get_app_id(card->lib_data);
 }
 
 uint64_t accel_get_queue_work_time(accel_t card)
@@ -430,7 +423,7 @@ uint64_t accel_get_queue_work_time(accel_t card)
 	if (accel->card_get_queue_work_time == NULL)
 		return 0;
 
-	return accel->card_get_queue_work_time(card->card_data);
+	return accel->card_get_queue_work_time(card->lib_data);
 }
 
 uint64_t accel_get_frequency(accel_t card)
@@ -443,7 +436,7 @@ uint64_t accel_get_frequency(accel_t card)
 	if (accel->card_get_frequency == NULL)
 		return 0;
 
-	return accel->card_get_frequency(card->card_data);
+	return accel->card_get_frequency(card->lib_data);
 }
 
 void accel_dump_hardware_version(accel_t card, FILE *fp)
@@ -456,7 +449,7 @@ void accel_dump_hardware_version(accel_t card, FILE *fp)
 	if (accel->card_dump_hardware_version == NULL)
 		return;
 
-	return accel->card_dump_hardware_version(card->card_data, fp);
+	return accel->card_dump_hardware_version(card->lib_data, fp);
 }
 
 int accel_pin_memory(accel_t card, const void *addr, size_t size,
@@ -470,7 +463,7 @@ int accel_pin_memory(accel_t card, const void *addr, size_t size,
 	if (accel->card_write_reg32 == NULL)
 		return DDCB_ERR_NOTIMPL;
 
-	return accel->card_pin_memory(card->card_data, addr, size, dir);
+	return accel->card_pin_memory(card->lib_data, addr, size, dir);
 }
 
 int accel_unpin_memory(accel_t card __attribute__((unused)),
@@ -485,7 +478,7 @@ int accel_unpin_memory(accel_t card __attribute__((unused)),
 	if (accel->card_unpin_memory == NULL)
 		return DDCB_ERR_NOTIMPL;
 
-	return accel->card_unpin_memory(card->card_data, addr, size);
+	return accel->card_unpin_memory(card->lib_data, addr, size);
 }
 
 void *accel_malloc(accel_t card, size_t size)
@@ -498,7 +491,7 @@ void *accel_malloc(accel_t card, size_t size)
 	if (accel->card_malloc == NULL)
 		return NULL;
 
-	return accel->card_malloc(card->card_data, size);
+	return accel->card_malloc(card->lib_data, size);
 }
 
 int accel_free(accel_t card, void *ptr, size_t size)
@@ -511,7 +504,7 @@ int accel_free(accel_t card, void *ptr, size_t size)
 	if (accel->card_free == NULL)
 		return DDCB_ERR_NOTIMPL;
 
-	return accel->card_free(card->card_data, ptr, size);
+	return accel->card_free(card->lib_data, ptr, size);
 }
 
 int accel_dump_statistics(struct ddcb_accel_funcs *accel, FILE *fp)
@@ -567,9 +560,9 @@ static void _done(void)
 		if (ddcb_gather_statistics()) {
 			fprintf(stderr,
 				"libddcb statistics for %s\n"
-				"  open    ; %5lld ; %8lld usec\n"
-				"  execute ; %5lld ; %8lld usec\n"
-				"  close   ; %5lld ; %8lld usec\n",
+				"  open ; %lld ; %lld usec ; "
+				"execute ; %lld ; %lld usec ; "
+				"close ; %lld ; %lld usec\n",
 				accel->card_name,
 				(long long)accel->num_open,
 				(long long)accel->time_open,
