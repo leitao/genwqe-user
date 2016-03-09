@@ -38,6 +38,14 @@ extern "C" {
 #include <pthread.h>
 #include <linux/types.h>
 
+#ifndef ARRAY_SIZE
+#  define ARRAY_SIZE(a)  (sizeof((a)) / sizeof((a)[0]))
+#endif
+
+#ifndef ABS
+#  define ABS(a)	 (((a) < 0) ? -(a) : (a))
+#endif
+
 /*****************************************************************************/
 /** Version Information and Error Codes					     */
 /*****************************************************************************/
@@ -54,10 +62,13 @@ extern "C" {
 #define DDCB_MODE_ASYNC			0x0008 /* ... */
 #define DDCB_MODE_NONBLOCK		0x0010 /* non blocking, -EBUSY */
 #define DDCB_MODE_POLLING		0x0020 /* polling */
-#define DDCB_MODE_MASTER		0x08000000 /* Open Master Context, Slave is default, CAPI ony */
+#define DDCB_MODE_MASTER		0x08000000 /* Open Master Context,
+						      Slave is default,
+						      CAPI ony */
 
 #define DDCB_APPL_ID_IGNORE		0x0000000000000000 /* Ignore applid */
 #define DDCB_APPL_ID_MASK		0x00000000ffffffff /* Valid bits */
+#define DDCB_APPL_ID_MASK_VER		0x000000ffffffffff /* Valid bits */
 
 #define DDCB_OK				0
 #define DDCB_ERRNO			-401 /* libc call went wrong */
@@ -73,6 +84,7 @@ extern "C" {
 #define DDCB_ERR_IRQTIMEOUT		-418
 #define DDCB_ERR_EVENTFAIL		-419
 #define DDCB_ERR_SELECTFAIL		-420  /* e.g. socket problems in sim */
+#define DDCB_ERR_TIMEOUT		-421
 
 /* Genwqe chip Units */
 #define DDCB_ACFUNC_SLU			0x00  /* chip service layer unit */
