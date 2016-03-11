@@ -22,6 +22,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netdb.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <string.h>
@@ -598,6 +599,7 @@ static void *ServNewSock(void *args)
 	int rc = 0;
 	int len;
 	char msg[2048];
+	char hostname[256];
 	struct client_data_s *client_data = (struct client_data_s*)args;
 	int sock = client_data->socket;
 	struct cgzipd_data_s *cg = client_data->cgzipd_data;
@@ -606,9 +608,14 @@ static void *ServNewSock(void *args)
 	VERBOSE1("[%s] Enter Sock: %d\n", __func__, sock);
 
 	pthread_detach(pthread_self());
+	hostname[255] = 0;
+	gethostname(hostname, 256);
+	struct hostent *h = gethostbyname(hostname);
+	json_object *jobj = json_object_new_object();
 	while (1) {
-		json_object *jobj = json_object_new_object();
-
+		/* Add Hostname */
+		json_object *jhost = json_object_new_string(h->h_name);
+		json_object_object_add(jobj, "host", jhost);
 		/* Card 0 */
 		card_data = cg->pcard[0];
 		json_object_add_card(jobj, cg->pcard[0]);
@@ -620,9 +627,9 @@ static void *ServNewSock(void *args)
 			json_object_to_json_string(jobj));
 		VERBOSE1("[%s] write(%d, JSON , %d)\n", __func__, sock,  len);
 		rc = send(sock, msg, len, MSG_CONFIRM);
-		json_object_put(jobj);
 		usleep(cg->delay * 1000);
 	}
+	json_object_put(jobj);
 	VERBOSE1("[%s] EXIT rc: %d Sock: %d\n", __func__, rc, sock);
 	close(sock);
 	free(client_data);
