@@ -188,7 +188,7 @@ static bool check_app(struct cxl_afu_h *afu_h, uint16_t min_rel)
 		return false;
 	if (0x475a4950 != avr.data.aid)
 		return false;
-	if (0x03 != avr.data.aida) 	/* Check II */
+	if (0x03 != avr.data.aida) 		/* Check II */
 		return false;
 	if (avr.data.release1 >= min_rel)	/* need >= min_rel */
 		return true;
@@ -206,12 +206,13 @@ static int card_open(struct card_data_s *cd)
 	uint64_t wed = 0;	/* Dummy */
 
 	sprintf(device, "/dev/cxl/afu%d.0m", cd->card);
-	VERBOSE1("[%s] Enter, Open Device: %s\n", __func__, device);
+	VERBOSE1("[%s] Card: %d Open Device: %s\n",
+		__func__, cd->card, device);
 	cd->afu_h = cxl_afu_open_dev(device);
 	if (NULL == cd->afu_h) {
 		rc = -1;
-		VERBOSE0("[%s] Card: %d Error rc: %d\n", __func__,
-			cd->card, rc);
+		VERBOSE0("[%s] Card: %d Error rc: %d\n",
+			__func__, cd->card, rc);
 		goto err_afu_free;
 	}
 
@@ -219,8 +220,8 @@ static int card_open(struct card_data_s *cd)
 	   one reported by the kernel driver */
 	rc = cxl_get_api_version_compatible(cd->afu_h, &api_version);
 	if ((rc != 0) || (api_version != CXL_KERNEL_API_VERSION)) {
-		VERBOSE0(" [%s] ERR: incompatible API version: %ld/%d rc=%d\n",
-			 __func__, api_version, CXL_KERNEL_API_VERSION, rc);
+		VERBOSE0(" [%s] Card: %d ERR: incompatible API version: %ld/%d rc=%d\n",
+			 __func__, cd->card, api_version, CXL_KERNEL_API_VERSION, rc);
 		rc = -2;
 		goto err_afu_free;
 	}
@@ -228,8 +229,8 @@ static int card_open(struct card_data_s *cd)
 	/* Check vendor id */
 	rc = cxl_get_cr_vendor(cd->afu_h, 0, &cr_vendor);
 	if ((rc != 0) || (cr_vendor != CGZIP_CR_VENDOR)) {
-		VERBOSE0(" [%s] ERR: vendor_id: %ld/%d rc=%d\n",
-			 __func__, (unsigned long)cr_vendor,
+		VERBOSE0(" [%s] Card: %d ERR: vendor_id: %ld/%d rc=%d\n",
+			 __func__, cd->card, (unsigned long)cr_vendor,
 			 CGZIP_CR_VENDOR, rc);
 		rc = -3;
 		goto err_afu_free;
@@ -238,15 +239,15 @@ static int card_open(struct card_data_s *cd)
 	/* Check device id */
 	rc = cxl_get_cr_device(cd->afu_h, 0, &cr_device);
 	if ((rc != 0) || (cr_device != CGZIP_CR_DEVICE)) {
-		VERBOSE0(" [%s] ERR: device_id: %ld/%d rc=%d\n",
-			 __func__, (unsigned long)cr_device,
+		VERBOSE0(" [%s] Card: %d ERR: device_id: %ld/%d rc=%d\n",
+			 __func__, cd->card, (unsigned long)cr_device,
 			 CGZIP_CR_VENDOR, rc);
 		rc = -4;
 		goto err_afu_free;
 	}
 
-	rc = cxl_afu_attach(cd->afu_h, (__u64)(unsigned long)
-			    (void *)&wed);
+	rc = cxl_afu_attach(cd->afu_h,
+		(__u64)(unsigned long)(void *)&wed);
 	if (0 != rc) {
 		rc = -6;
 		goto err_afu_free;
@@ -259,8 +260,8 @@ static int card_open(struct card_data_s *cd)
 		goto err_afu_free;
 	}
 	if (false == check_app(cd->afu_h, MIN_REL_VERSION)) {
-		VERBOSE0("Err: Wrong Card Release. Need >= 0x%02x\n",
-			MIN_REL_VERSION);
+		VERBOSE0("[%s] Card: %d Err: Wrong Card Release. Need >= 0x%02x\n",
+			__func__, cd->card, MIN_REL_VERSION);
 		cxl_mmio_unmap(cd->afu_h);
 		cxl_afu_free(cd->afu_h);
 		rc = -8;
@@ -269,7 +270,8 @@ static int card_open(struct card_data_s *cd)
  err_afu_free:
 	if (0 != rc)
 		cd->afu_h = NULL;
-	VERBOSE1("[%s] Exit rc: %d\n", __func__, rc);
+	VERBOSE1("[%s] Card: %d Exit rc: %d\n",
+		__func__, cd->card, rc);
 	return rc;
 }
 
@@ -486,7 +488,8 @@ static void *card_thread(void *data)
 			__func__, cd->card, state, delay);
 		usleep(delay * 1000);
 	}
-	VERBOSE0("[%s] Exit Card: %d rc: %d\n", __func__, cd->card, rc);
+	VERBOSE0("[%s] Card: %d Exit rc: %d\n",
+		__func__, cd->card, rc);
 	pthread_exit(&rc);
 }
 
@@ -528,20 +531,22 @@ static void do_exit(struct cgzipd_data_s *cg)
 
 	pc = cg->pcard[0];
 	if (pc->tid) {
-		VERBOSE1("Wait for Join Card 0 Thread\n");
+		VERBOSE1("[%s] Wait for Card 0 Thread\n",
+			__func__);
 		pthread_cancel(pc->tid);
 		pthread_join(pc->tid, &res);
 		pc->tid = 0;
 	}
 	pc = cg->pcard[1];
 	if (pc->tid) {
-		VERBOSE1("Wait for Join Card 1 Thread\n");
+		VERBOSE1("[%s] Wait for Card 1 Thread\n",
+			__func__);
 		pthread_cancel(pc->tid);
 		pthread_join(pc->tid, &res);
 		pc->tid = 0;
 	}
 
-	VERBOSE1("Free Card's\n");
+	VERBOSE1("[%s] Free Card's\n", __func__);
 	if (cg->pcard[0])
 		free(cg->pcard[0]);
 	if (cg->pcard[1])
@@ -555,7 +560,6 @@ static void sig_handler(int sig)
 
 	VERBOSE0("Sig Handler Signal: %d %p\n", sig, cg);
 	do_exit(cg);
-	//afu_m_close(afu_h);
 	fflush(fd_out);
 	fclose(fd_out);
 	VERBOSE0("Sig Handler Exit\n");
@@ -675,7 +679,8 @@ static void *SockServ(void *args)
 
 	sinSize = sizeof(struct sockaddr_in);
 	while (0 == rc) {
-		VERBOSE1("[%s] Wait for accept(%d....)\n", __func__, ServSock);
+		VERBOSE1("[%s] Wait for accept(%d....)\n",
+			__func__, ServSock);
 		NewSock = accept(ServSock,
 				(struct sockaddr *)&client,
 				(socklen_t*)&sinSize);
