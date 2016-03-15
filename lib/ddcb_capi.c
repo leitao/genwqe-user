@@ -804,25 +804,10 @@ static int card_close(void *card_data)
 
 	rt_trace(0xdeaf, 0, 0, ttx);
 
-#if 0
-	struct lib_data *ld = &lib_data;
-	unsigned int no, card_min = 0, card_max = NUM_CARDS;
 	/*
-	 * PERFORMANCE NOTE: We should keep the devices open to
-	 * improve performance for application which open/close
-	 * streams a lot.
+	 * NOTE Do not close the card and keep handles open. Anything
+	 * else will mess up performance for small requests.
 	 */
-	if (ttx->card_no != ACCEL_REDUNDANT) {
-		card_min = ttx->card_no;
-		card_max = card_min + 1;
-		ttx->ctx = &ld->ctx[ttx->card_no];  /* we know it already */
-	}
-	for (no = card_min; no < card_max; no++)
-		__set_dev_state(&ld->ctx[no], DEV_CLOSE_REQ);
-
-	sem_post(&ld->health_sem);		/* post health thread */
-#endif
-
 	ttx->verify = NULL;
 	free(ttx);
 
@@ -911,20 +896,12 @@ static int __ddcb_execute_multi(struct ttxs *ttx, struct ddcb_cmd *cmd)
 	return ttx->compl_code;	/* Give Completion code back to caller */
 }
 
-/**
- * This function supports the multicard mode. It will automatically
- * select an initialized card to execute the requested DDCB.
- */
-static int ddcb_execute(void *card_data, struct ddcb_cmd *cmd)
+static int find_valid_card(struct ttxs *ttx)
 {
-	int rc;
-	struct lib_data *ld = &lib_data;
-	struct ttxs *ttx = (struct ttxs *)card_data;
-	struct dev_ctx *ctx = NULL;
 	unsigned long t;
 	unsigned int no;
-
-	VERBOSE1("[%s] Enter: %p\n", __func__, ttx);
+	struct dev_ctx *ctx = NULL;
+	struct lib_data *ld = &lib_data;
 
 	/*
 	 * Search for a card in DEV_OPENED state which we can use to
@@ -964,11 +941,30 @@ static int ddcb_execute(void *card_data, struct ddcb_cmd *cmd)
 		return DDCB_ERR_TIMEOUT;
 	}
 
+	return DDCB_OK;
+}
+
+/**
+ * This function supports the multicard mode. It will automatically
+ * select an initialized card to execute the requested DDCB.
+ */
+static int ddcb_execute(void *card_data, struct ddcb_cmd *cmd)
+{
+	int rc;
+	struct ttxs *ttx = (struct ttxs *)card_data;
+
+	VERBOSE1("[%s] Enter: %p\n", __func__, ttx);
+
+	rc = find_valid_card(ttx);
+	if (rc != DDCB_OK)
+		goto err_out;
+
 	/* Finally we can execute our request */
 	rc = __ddcb_execute_multi(ttx, cmd);
 	if (DDCB_OK != rc)
 		errno = EINTR;
 
+ err_out:
 	VERBOSE1("[%s] Exit: %p\n", __func__, ttx);
 	return rc;
 }
