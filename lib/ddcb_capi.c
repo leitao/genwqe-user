@@ -1,5 +1,5 @@
 /*
- * Copyright 2015, International Business Machines
+ * Copyright 2015, 2016, International Business Machines
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -187,7 +187,6 @@ struct lib_data {
 	pthread_t health_tid;
 	int health_rc;
 	sem_t health_sem;
-
 	struct dev_ctx ctx[NUM_CARDS];
 };
 
@@ -655,8 +654,10 @@ static inline int __afu_close(struct dev_ctx *ctx, bool force)
 /**
  * NOTE: ctx->lock must be held when entering this function.
  *
- * This needs to be executed only if the device is not
- * yet open. The Card (AFU) will be attaced in the done thread.
+ * This needs to be executed only if the device is not yet open. The
+ * Card (AFU) will be attaced in the done thread. We sync up the
+ * opening via the open_done_sem to ensure that we can really use the
+ * device after this function returns.
  */
 static int card_dev_open(struct dev_ctx *ctx)
 {
@@ -705,6 +706,10 @@ static int card_dev_open(struct dev_ctx *ctx)
 
 /**
  * NOTE: ctx->lock must be held when entering this function.
+ *
+ * We stop the worker thread, which causes the afu handle to be closed
+ * along with it. joining is needed to ensure that everything is
+ * synced up nicely.
  */
 static int card_dev_close(struct dev_ctx *ctx)
 {
@@ -788,9 +793,7 @@ static void *card_open(int card_no, unsigned int mode, int *card_rc,
 
 static int card_close(void *card_data)
 {
-	struct lib_data *ld = &lib_data;
 	struct ttxs *ttx = (struct ttxs*)card_data;
-	unsigned int no, card_min = 0, card_max = NUM_CARDS;
 
 	VERBOSE1("[%s] Enter ttx: %p\n", __func__, ttx);
 	if (NULL == ttx)
@@ -801,6 +804,9 @@ static int card_close(void *card_data)
 
 	rt_trace(0xdeaf, 0, 0, ttx);
 
+#if 0
+	struct lib_data *ld = &lib_data;
+	unsigned int no, card_min = 0, card_max = NUM_CARDS;
 	/*
 	 * PERFORMANCE NOTE: We should keep the devices open to
 	 * improve performance for application which open/close
@@ -815,6 +821,7 @@ static int card_close(void *card_data)
 		__set_dev_state(&ld->ctx[no], DEV_CLOSE_REQ);
 
 	sem_post(&ld->health_sem);		/* post health thread */
+#endif
 
 	ttx->verify = NULL;
 	free(ttx);
@@ -1357,8 +1364,8 @@ static void *card_worker(struct dev_ctx *ctx)
 		if (version == -1ULL) {
 			VERBOSE0("  [%s] ERR: IMP_VERSION=%016llx!\n",
 				 __func__, (long long)version);
-			card_dev_close(ctx);
 			set_dev_state(ctx, DEV_CLOSED);
+			card_dev_close(ctx);
 			break;
 		}
 		break;
@@ -1721,8 +1728,12 @@ static void capi_card_exit(void)
 	unsigned int card_no;
 	struct lib_data *ld = &lib_data;
 
-	for (card_no = 0; card_no < NUM_CARDS; card_no++)
-		card_dev_close(&ld->ctx[card_no]);
+	for (card_no = 0; card_no < NUM_CARDS; card_no++) {
+		struct dev_ctx *ctx = &ld->ctx[card_no];
+
+		set_dev_state(ctx, DEV_CLOSED);
+		card_dev_close(ctx);
+	}
 
 	if (ld->health_tid) {
 		pthread_cancel(ld->health_tid);
