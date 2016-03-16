@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/timeb.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <arpa/inet.h>
@@ -608,6 +609,8 @@ static void *ServNewSock(void *args)
 	int sock = client_data->socket;
 	struct cgzipd_data_s *cg = client_data->cgzipd_data;
 	struct card_data_s *card_data;	/* For Card Data */
+	struct  timeb now;
+	uint64_t now_ms;
 
 	VERBOSE1("[%s] Enter Sock: %d\n", __func__, sock);
 
@@ -620,6 +623,11 @@ static void *ServNewSock(void *args)
 		/* Add Hostname */
 		json_object *jhost = json_object_new_string(h->h_name);
 		json_object_object_add(jobj, "host", jhost);
+		/* Add Time */
+		ftime(&now);
+		now_ms = now.time * 1000 + now.millitm;
+		json_object *jts = json_object_new_int64(now_ms);
+		json_object_object_add(jobj,"ts", jts);
 		/* Card 0 */
 		card_data = cg->pcard[0];
 		json_object_add_card(jobj, cg->pcard[0]);
