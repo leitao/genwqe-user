@@ -108,6 +108,7 @@ struct card_data_s {
 	int fail_cnt;		/* Fail counter */
 	char qstat[512];	/* Info for each Context */
 	int act;		/* Active Contexts */
+	int max_ctx;		/* Max # of Contexts */
 	int card_status;	/* Status for Card */
 	uint16_t release1;	/* Card Release 1 */
 	uint8_t release2;	/* Card Release 2 */
@@ -392,7 +393,8 @@ static int collect_trans_data(struct card_data_s *cd)
 			VERBOSE3("[%s] Card: %d CTX: %d Status: %c\n", __func__, cd->card, ctx, flag);
 		}
 	}
-	cd->act = act;	/* Save the number of active contexts */
+	cd->max_ctx = ctx + 1;	/* Save Latest context i found */
+	cd->act = act;		/* Save the number of active contexts */
 	/* Get the Workload */
 	cd->load = 0;		/* Clear */
 	mmio_read(cd->afu_h, MMIO_MASTER_CTX_NUMBER,
@@ -454,7 +456,7 @@ static void *card_thread(void *data)
 				delay = cd->fail_delay;
 			}
 			break;
-		case COLLECT_TRANS_DATA:
+		case COLLECT_TRANS_DATA:	/* Normal State */
 			rc = collect_trans_data(cd);
 			if (0 != rc)
 				state = DO_CARD_CLOSE;
@@ -576,8 +578,8 @@ static void json_object_add_card(json_object *jobj,
 	if (0 == card_data->card)
 		json_object_object_add(jobj, "card0", jcard);
 	else	json_object_object_add(jobj, "card1", jcard);
-	memcpy(msg, card_data->qstat, 512);
-	msg[512] = 0;
+	memcpy(msg, card_data->qstat, card_data->max_ctx);
+	msg[card_data->max_ctx] = 0;
 	json_object *jctx = json_object_new_string(msg);
 	json_object_object_add(jcard, "ctx", jctx);
 	json_object *jstatus = json_object_new_int(card_data->card_status);
