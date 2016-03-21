@@ -87,7 +87,6 @@ typedef union avr_u {
 /*	Expect min this Release or higher */
 #define	MIN_REL_VERSION	0x0603
 
-#if 0
 static int mmio_write(struct cxl_afu_h *afu_h,
 		int ctx,
 		uint32_t offset,
@@ -102,7 +101,6 @@ static int mmio_write(struct cxl_afu_h *afu_h,
 	VERBOSE3("[%s] Exit, rc = %d\n", __func__, rc);
 	return rc;
 }
-#endif
 
 static int mmio_read(struct cxl_afu_h *afu_h,
 		int ctx,
@@ -232,11 +230,41 @@ static void card_close(int card, struct cxl_afu_h *afu_h)
 	return;
 }
 
+#define	TICKS_TOMSEC	250000
+#define MSEC_PER_SEC	1000
+#define	SEC_PER_MIN	60
+#define	SEC_PER_HOUR	(SEC_PER_MIN * 60)
+#define SEC_PER_DAY	(SEC_PER_HOUR * 24)
+
+/* Print day-h:min:sec.msec */
+static void print_dhms(uint64_t msec)
+{
+	int sec = (int)(msec / MSEC_PER_SEC);
+	int msecs = (int)(msec - (sec * MSEC_PER_SEC));
+	int days = sec / SEC_PER_DAY;
+	int hours = (sec % SEC_PER_DAY) / SEC_PER_HOUR;
+	int mins = ((sec % SEC_PER_DAY) % SEC_PER_HOUR) / SEC_PER_MIN;
+	int secs = ((sec % SEC_PER_DAY) % SEC_PER_HOUR) % SEC_PER_MIN; 
+	VERBOSE0("%d-%02d:%02d:%02d.%d", days, hours, mins, secs, msecs);
+	return;
+}
+
+
+static void reset_counters(struct cxl_afu_h *afu_h)
+{
+	uint64_t data = 0ull;
+
+	/* Note: Registers are RO ! */
+	mmio_write(afu_h, MMIO_MASTER_CTX_NUMBER,
+		0x90, data);
+	mmio_write(afu_h, MMIO_MASTER_CTX_NUMBER,
+		MMIO_FRT_REG, data);
+	return;
+}
+
 static void get_load(int card, struct cxl_afu_h *afu_h)
 {
 	uint64_t wload, frt;
-	int wload_sec, wload_msec;
-	int frt_sec, frt_msec;
 	int load;
 
 	mmio_read(afu_h, MMIO_MASTER_CTX_NUMBER,
@@ -245,19 +273,14 @@ static void get_load(int card, struct cxl_afu_h *afu_h)
 		mmio_read(afu_h, MMIO_MASTER_CTX_NUMBER,
 			MMIO_FRT_REG, &frt);
 		if (-1ull != frt) {
-			wload = wload / 250000;		/* Wload in msec */
-			wload_sec = (int)(wload / 1000);	/* Wload in Sec */
-			wload_msec = (int)(wload - (wload_sec * 1000));
-
-			frt = frt / 250000;		/* FRT in msec */
-			frt_sec = (int)(frt/1000);	/* FRT in sec */
-			frt_msec = (int)(frt - (frt_sec * 1000));
-
+			wload = wload / TICKS_TOMSEC;	/* Wload in msec */
+			frt = frt / TICKS_TOMSEC;	/* FRT in msec */
 			load = (int)(wload * 100 / frt);
-			VERBOSE0("Capi-Gzip Card %d Uptime: %d.%d sec "
-				"BusyTime: %d.%d sec Load AVG: %d%%\n",
-				card, frt_sec, frt_msec,
-				wload_sec, wload_msec, load);
+			VERBOSE0("Capi-Gzip Card %d Up: ", card);
+			print_dhms(frt);
+			VERBOSE0(" Busy: ");
+			print_dhms(wload);
+			VERBOSE0(" (d-h:m:s.msec) Load AVG: %d%%\n", load);
 		} else VERBOSE0("[%s] Can not read FRT from Card: %d\n",
 			__func__, card);
 	} else VERBOSE0("[%s] Can not read WLOAD from Card: %d\n",
@@ -274,8 +297,10 @@ static void sig_handler(int sig)
 static void help(char *prog)
 {
 	printf("Usage: %s [-vhV] [-C Card#]\n"
+	       "\t-C, --card            CAPI Gzip Card to use\n"
 	       "\t-V, --version         Print Version number\n"
-	       "\t-h, --help		This help message\n"
+	       "\t-h, --help            This help message\n"
+	       "\t-r, --reset           Reset Counters before reading (future)\n"
 	       "\t-v, --verbose         verbose mode, up to -vvv\n"
 	       , prog);
 }
@@ -289,6 +314,7 @@ int main(int argc, char *argv[])
 	int ch;
 	struct cxl_afu_h *afu_h;
 	int card = 0;
+	bool reset_flag = false;
 
 	sigset_t new;
 
@@ -300,9 +326,10 @@ int main(int argc, char *argv[])
 			{ "version",	no_argument,	   NULL, 'V' },
 			{ "help",	no_argument,	   NULL, 'h' },
 			{ "verbose",	no_argument,	   NULL, 'v' },
+			{ "reset",	no_argument,	   NULL, 'r' },
 			{ 0,		0,		   NULL,  0  }
 		};
-		ch = getopt_long(argc, argv, "C:Vvh",
+		ch = getopt_long(argc, argv, "C:Vvhr",
 			long_options, &option_index);
 		if (-1 == ch)
 			break;
@@ -320,6 +347,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'v':	/* --verbose */
 			verbose++;
+			break;
+		case 'r':	/* --reset */
+			reset_flag = true;
 			break;
 		default:
 			help(argv[0]);
@@ -351,6 +381,8 @@ int main(int argc, char *argv[])
 			goto main_exit;
         	}
 
+		if (reset_flag)
+			reset_counters(afu_h);
 		get_load(card, afu_h);
 	}
   main_exit:
