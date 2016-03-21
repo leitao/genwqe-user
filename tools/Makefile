@@ -42,7 +42,7 @@ projs = genwqe_update genwqe_gzip genwqe_gunzip zlib_mt_perf genwqe_memcopy \
 # Do this only on platforms where we have a libcxl available e.g. System p
 ifneq ($(CONFIG_LIBCXL_PATH),)
 projs += genwqe_maint genwqe_loadtree
-projs += agzipd
+projs += agzipd ag_uptime
 endif
 
 all: $(projs)
