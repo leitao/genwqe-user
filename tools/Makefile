@@ -18,7 +18,7 @@ include ../config.mk
 
 DESTDIR ?= /usr
 libs = ../lib/libDDCB.a ../lib/libzHW.a ../lib/libcard.a
-LDLIBS += $(libs) -lpthread -lrt
+LDLIBS += -L../lib -lpthread -lrt
 
 genwqe_peek_objs = force_cpu.o
 genwqe_poke_objs = force_cpu.o
@@ -29,10 +29,20 @@ genwqe_vpdupdate_objs = genwqe_vpd_common.o
 genwqe_vpdconv_objs = genwqe_vpd_common.o
 
 genwqe_memcopy_libs = -lz
-genwqe_cksum_libs = -lz
+genwqe_cksum_libs = ../lib/libzADC.a -ldl -lz
 genwqe_gzip_libs = ../lib/libzADC.a -ldl	# statically link our libz
 genwqe_gunzip_libs = ../lib/libzADC.a -ldl	# statically link our libz
-zlib_mt_perf_libs = ../lib/libzADC.a -ldl	# statically link our libz
+zlib_mt_perf_libs = -Wl,-rpath,$(LIB_INSTALL_PATH) -lzADC -ldl
+genwqe_update_libs = $(libs)
+genwqe_memcopy_libs = ../lib/libzADC.a -ldl
+genwqe_echo_libs = $(libs)
+genwqe_peek_libs = $(libs)
+genwqe_poke_libs = $(libs)
+genwqe_ffdc_libs = $(libs)
+genwqe_loadtree_libs = ../lib/libzADC.a -ldl
+genwqe_card_cksum_libs = $(libs)
+genwqe_vpdupdate_libs = $(libs)
+genwqe_maint_libs = ../lib/libzADC.a -ldl
 
 projs = genwqe_update genwqe_gzip genwqe_gunzip zlib_mt_perf genwqe_memcopy \
 	genwqe_echo genwqe_peek genwqe_poke genwqe_cksum genwqe_vpdconv \
