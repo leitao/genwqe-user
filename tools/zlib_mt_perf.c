@@ -120,6 +120,7 @@ struct thread_data {
 	int thread_rc;		// ret: rc of thread
 	int cpu;		// inp: cpu running on
 	bool first_run;
+	int level;
 
 	unsigned int comp_calls;    // ret: # of compression calls
 	unsigned int decomp_calls;  // ret: # of decompression calls
@@ -472,6 +473,8 @@ static void usage(char *prog)
 	       "  -o, --o_bufsize <o_bufsize>\n"
 	       "  -D, --deflate - execute deflate. default: inflate\n"
 	       "  -f  --filename <filename>\n"
+	       "  -1, --fast compress faster\n"
+	       "  -9, --best compress better\n"
 	       "  -v  --verbose\n"
 	       "  -V  --version\n"
 	       "\n", b, b);
@@ -483,9 +486,10 @@ static void *libz_thread_defl(void *data)
 	unsigned int i;
 	struct thread_data *d = (struct thread_data *)data;
 	FILE *i_fp;
-	d->defl_total=0;
-	d->defl_time=0;
-	d->comp_calls=0;
+
+	d->defl_total = 0;
+	d->defl_time = 0;
+	d->comp_calls = 0;
 	d->tid = gettid();
 	d->cpu = sched_getcpu();
 	d->first_run = true;
@@ -498,7 +502,7 @@ static void *libz_thread_defl(void *data)
 	}
 
 	for (i = 0; (i < count) && (exit_on_err == 0); i++) {
-		rc = defl(d, i_fp, Z_DEFAULT_COMPRESSION);
+		rc = defl(d, i_fp, d->level);
 		if (rc != Z_OK) {
 			fprintf(stderr, "err/def: rc=%d %s\n", rc, i_fname);
 			zerr(rc);
@@ -562,14 +566,16 @@ static void *libz_thread_infl(void *data)
 	pthread_exit(&d->thread_rc);
 }
 
-static int run_threads(struct thread_data *d, unsigned int threads)
+static int run_threads(struct thread_data *d, unsigned int threads, int level)
 {
 	int rc;
 	unsigned int i;
 	unsigned long int time_ns_beg, time_ns_end;
 
-	for (i = 0; i < threads; i++)
+	for (i = 0; i < threads; i++) {
+		d[i].level = level;
 		d[i].thread_rc = -1;
+	}
 
 	time_ns_beg=get_nsec();	// Take system time at thread begins
 	for (i = 0; i < threads; i++) {
@@ -704,6 +710,7 @@ static void print_results(void)
 int main(int argc, char **argv)
 {
 	int rc = EXIT_SUCCESS;
+	int level = Z_DEFAULT_COMPRESSION;
 
 	/* avoid end-of-line conversions */
 	SET_BINARY_MODE(stdin);
@@ -722,13 +729,15 @@ int main(int argc, char **argv)
 			{ "deflate",	 no_argument,	     NULL, 'D' },
 			{ "pre-alloc-memory", no_argument,   NULL, 'P' },
 			{ "no-header",	 no_argument,	     NULL, 'N' },
+			{ "fast",	 no_argument,	     NULL, '1' },
+			{ "best",	 no_argument,	     NULL, '9' },
 			{ "version",	 no_argument,	     NULL, 'V' },
 			{ "verbose",	 no_argument,	     NULL, 'v' },
 			{ "help",	 no_argument,	     NULL, 'h' },
 			{ 0,		 no_argument,	     NULL, 0   },
 		};
 
-		ch = getopt_long(argc, argv, "Xd:f:Dc:t:i:o:NVvh?",
+		ch = getopt_long(argc, argv, "19Xd:f:Dc:t:i:o:NVvh?",
 				 long_options, &option_index);
 		if (ch == -1)    /* all params processed ? */
 			break;
@@ -763,6 +772,12 @@ int main(int argc, char **argv)
 		case 'N':
 			print_hdr = false;
 			break;
+		case '1':
+			level = Z_BEST_SPEED;
+			break;
+		case '9':
+			level = Z_BEST_COMPRESSION;
+			break;
 		case 'V':
 			fprintf(stdout, "%s\n", version);
 			exit(EXIT_SUCCESS);
@@ -785,7 +800,7 @@ int main(int argc, char **argv)
 	if (rc != 0)
 		fprintf(stderr, "err: initializing mutex failed!\n");
 
-	rc = run_threads(d, threads);
+	rc = run_threads(d, threads, level);
 
 	pthread_mutex_destroy(&mutex);
 	exit(rc);
